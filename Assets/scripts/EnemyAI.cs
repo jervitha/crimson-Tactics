@@ -19,10 +19,16 @@ public class EnemyAI : MonoBehaviour, IAI
 
     public void MoveTowardsTarget(Vector3 targetPosition)
     {
-        this.targetPosition = targetPosition;
+        this.targetPosition = GetNearestAdjacentPosition(targetPosition);
+        if (this.targetPosition == transform.position)
+        {
+            // No valid move available (adjacent positions are blocked), do not move
+            return;
+        }
+
         ObstacleManager obstacleManager = FindObjectOfType<ObstacleManager>();
-        path = FindPath(transform.position, targetPosition, obstacleManager.obstacleData);
-        if (path != null)
+        path = FindPath(transform.position, this.targetPosition, obstacleManager.obstacleData);
+        if (path != null && path.Count > 0)
         {
             isMoving = true;
         }
@@ -49,56 +55,64 @@ public class EnemyAI : MonoBehaviour, IAI
 
     Stack<Vector3> FindPath(Vector3 startPos, Vector3 targetPos, ObstacleData obstacleData)
     {
-        Vector2Int start = new Vector2Int(Mathf.RoundToInt(startPos.x), Mathf.RoundToInt(startPos.z));
-        Vector2Int target = new Vector2Int(Mathf.RoundToInt(targetPos.x), Mathf.RoundToInt(targetPos.z));
-
-        List<Vector2Int> openList = new List<Vector2Int>();
-        HashSet<Vector2Int> closedList = new HashSet<Vector2Int>();
-        Dictionary<Vector2Int, Vector2Int> cameFrom = new Dictionary<Vector2Int, Vector2Int>();
-        Dictionary<Vector2Int, float> gScore = new Dictionary<Vector2Int, float>();
-        Dictionary<Vector2Int, float> fScore = new Dictionary<Vector2Int, float>();
-
-        openList.Add(start);
-        gScore[start] = 0;
-        fScore[start] = Vector2Int.Distance(start, target);
-
-        while (openList.Count > 0)
+        try
         {
-            Vector2Int current = GetLowestFScoreNode(openList, fScore);
+            Vector2Int start = new Vector2Int(Mathf.RoundToInt(startPos.x), Mathf.RoundToInt(startPos.z));
+            Vector2Int target = new Vector2Int(Mathf.RoundToInt(targetPos.x), Mathf.RoundToInt(targetPos.z));
 
-            if (current == target)
+            List<Vector2Int> openList = new List<Vector2Int>();
+            HashSet<Vector2Int> closedList = new HashSet<Vector2Int>();
+            Dictionary<Vector2Int, Vector2Int> cameFrom = new Dictionary<Vector2Int, Vector2Int>();
+            Dictionary<Vector2Int, float> gScore = new Dictionary<Vector2Int, float>();
+            Dictionary<Vector2Int, float> fScore = new Dictionary<Vector2Int, float>();
+
+            openList.Add(start);
+            gScore[start] = 0;
+            fScore[start] = Vector2Int.Distance(start, target);
+
+            while (openList.Count > 0)
             {
-                return ReconstructPath(cameFrom, current);
+                Vector2Int current = GetLowestFScoreNode(openList, fScore);
+
+                if (current == target)
+                {
+                    return ReconstructPath(cameFrom, current);
+                }
+
+                openList.Remove(current);
+                closedList.Add(current);
+
+                foreach (Vector2Int neighbor in GetNeighbors(current))
+                {
+                    if (closedList.Contains(neighbor) || IsObstacle(neighbor, obstacleData))
+                    {
+                        continue;
+                    }
+
+                    float tentativeGScore = gScore[current] + Vector2Int.Distance(current, neighbor);
+
+                    if (!openList.Contains(neighbor))
+                    {
+                        openList.Add(neighbor);
+                    }
+                    else if (tentativeGScore >= gScore[neighbor])
+                    {
+                        continue;
+                    }
+
+                    cameFrom[neighbor] = current;
+                    gScore[neighbor] = tentativeGScore;
+                    fScore[neighbor] = gScore[neighbor] + Vector2Int.Distance(neighbor, target);
+                }
             }
 
-            openList.Remove(current);
-            closedList.Add(current);
-
-            foreach (Vector2Int neighbor in GetNeighbors(current))
-            {
-                if (closedList.Contains(neighbor) || IsObstacle(neighbor, obstacleData))
-                {
-                    continue;
-                }
-
-                float tentativeGScore = gScore[current] + Vector2Int.Distance(current, neighbor);
-
-                if (!openList.Contains(neighbor))
-                {
-                    openList.Add(neighbor);
-                }
-                else if (tentativeGScore >= gScore[neighbor])
-                {
-                    continue;
-                }
-
-                cameFrom[neighbor] = current;
-                gScore[neighbor] = tentativeGScore;
-                fScore[neighbor] = gScore[neighbor] + Vector2Int.Distance(neighbor, target);
-            }
+            return null;
         }
-
-        return null;
+        catch (System.Exception ex)
+        {
+            Debug.LogError("Error finding path: " + ex.Message);
+            return null;
+        }
     }
 
     Vector2Int GetLowestFScoreNode(List<Vector2Int> openList, Dictionary<Vector2Int, float> fScore)
@@ -150,5 +164,26 @@ public class EnemyAI : MonoBehaviour, IAI
         }
 
         return totalPath;
+    }
+
+    Vector3 GetNearestAdjacentPosition(Vector3 playerPosition)
+    {
+        Vector3[] adjacentPositions = new Vector3[]
+        {
+            playerPosition + Vector3.forward,
+            playerPosition + Vector3.back,
+            playerPosition + Vector3.left,
+            playerPosition + Vector3.right
+        };
+
+        foreach (var pos in adjacentPositions)
+        {
+            if (!IsObstacle(new Vector2Int(Mathf.RoundToInt(pos.x), Mathf.RoundToInt(pos.z)), FindObjectOfType<ObstacleManager>().obstacleData) && pos != transform.position)
+            {
+                return pos;
+            }
+        }
+
+        return transform.position; // No valid adjacent position found
     }
 }
